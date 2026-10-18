@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tuner</title>
+<meta name="description" content="Load an M3U playlist, browse every channel and search by name, category or what's on now.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tuner">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef1f5" media="(prefers-color-scheme: light)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: sticky control deck (search, scope, category strip) over one channel rail; player and settings rise as bottom sheets */
+:root{
+  --bg:#0d1117; --deck:rgba(13,17,23,.86); --surface:#151b24; --raise:#1d2531; --line:#263142;
+  --fg:#e9eef4; --muted:#8994a6; --faint:#5d6879;
+  --accent:#f2b544; --accent-ink:#1b1400; --accent-soft:rgba(242,181,68,.14);
+  --live:#ff5b4f; --danger:#ff7a6e;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --r:12px; --gut:max(16px, env(safe-area-inset-left, 0px)); --gutR:max(16px, env(safe-area-inset-right, 0px));
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root{
+    --bg:#eef1f5; --deck:rgba(238,241,245,.88); --surface:#ffffff; --raise:#f4f6f9; --line:#d6dce5;
+    --fg:#111823; --muted:#556175; --faint:#8a95a6;
+    --accent:#a35f00; --accent-ink:#ffffff; --accent-soft:rgba(163,95,0,.1);
+    --live:#d7372b; --danger:#c3352a;
+    color-scheme:light;
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 var(--body);-webkit-tap-highlight-color:transparent;min-height:100vh;overscroll-behavior-y:none}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0;padding:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+[hidden]{display:none!important}
+.mono{font-family:var(--mono)}
+
+/* Deck */
+.deck{position:sticky;top:0;z-index:20;background:var(--deck);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top,0px)}
+.deck-in{max-width:760px;margin:0 auto;padding-left:var(--gut);padding-right:var(--gutR);padding-block:10px 0;display:grid;gap:10px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:center;gap:8px;font-family:var(--display);font-stretch:78%;font-weight:800;font-size:24px;letter-spacing:.02em;text-transform:uppercase}
+.brand svg{width:26px;height:26px;color:var(--accent)}
+.pill-btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-weight:600;font-size:14px}
+.pill-btn svg{width:16px;height:16px}
+.search{display:flex;align-items:center;gap:8px;height:44px;padding:0 12px;border-radius:var(--r);background:var(--surface);border:1px solid var(--line)}
+.search:focus-within{border-color:var(--accent)}
+.search svg{width:18px;height:18px;color:var(--muted);flex:none}
+.search input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:16px;height:100%}
+.search input::-webkit-search-cancel-button{-webkit-appearance:none}
+.clear{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:var(--muted)}
+.scope{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;padding:3px;border-radius:10px;background:var(--surface);border:1px solid var(--line)}
+.scope button{height:30px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted)}
+.scope button[aria-selected="true"]{background:var(--raise);color:var(--fg);box-shadow:0 1px 0 var(--line)}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:10px;margin:0 calc(-1 * var(--gutR)) 0 calc(-1 * var(--gut));padding-left:var(--gut);padding-right:var(--gutR);scroll-padding-inline:var(--gut)}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:13px;font-weight:600;white-space:nowrap}
+.chip .n{font-family:var(--mono);font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.chip[aria-pressed="true"] .n{color:inherit;opacity:.7}
+
+/* Status */
+main{max-width:760px;margin:0 auto;padding-left:var(--gut);padding-right:var(--gutR);padding-block:0 calc(24px + env(safe-area-inset-bottom,0px))}
+.status{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px 0 8px;font-size:12px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+.status .count{font-variant-numeric:tabular-nums}
+.status .err{color:var(--danger);text-transform:none;letter-spacing:0;font-size:14px;font-weight:500}
+.guide-tag{display:inline-flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.guide-tag.on{color:var(--accent);border-color:var(--accent-soft);background:var(--accent-soft)}
+.guide-tag .d{width:6px;height:6px;border-radius:50%;background:currentColor}
+.link{color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:sp .8s linear infinite;display:inline-block;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* Channel rail */
+.list{list-style:none;margin:0;padding:0;border-radius:var(--r);background:var(--surface);border:1px solid var(--line);overflow:hidden}
+.list:empty{display:none}
+.row{display:flex;align-items:stretch;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row-main{flex:1;min-width:0;display:grid;grid-template-columns:56px minmax(0,1fr);gap:12px;align-items:center;padding:10px 4px 10px 12px;text-align:left}
+.row-main:active{background:var(--raise)}
+.logo{position:relative;width:56px;height:42px;border-radius:8px;background:var(--raise);display:grid;place-items:center;overflow:hidden}
+.logo .ini{font-family:var(--display);font-stretch:75%;font-weight:800;font-size:16px;color:var(--faint);letter-spacing:.02em}
+.logo img{position:absolute;inset:4px;width:calc(100% - 8px);height:calc(100% - 8px);object-fit:contain}
+.info{min-width:0;display:grid;gap:2px}
+.name{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.q{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:2px}
+.meta{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--fg);opacity:.75;margin-right:6px}
+.tag{color:var(--faint)}
+.now{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;align-items:center;margin-top:3px;font-size:13px}
+.now-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.now-t::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--live);margin-right:6px;vertical-align:1px}
+.left{font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.bar{grid-column:1/-1;height:2px;border-radius:2px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px}
+.star{flex:none;width:48px;display:grid;place-items:center;color:var(--faint)}
+.star svg{width:20px;height:20px}
+.star[aria-pressed="true"]{color:var(--accent)}
+.empty{padding:48px 8px;text-align:center;color:var(--muted);display:grid;gap:8px;justify-items:center}
+.empty h2{margin:0;font-family:var(--display);font-stretch:80%;font-size:22px;color:var(--fg);text-wrap:balance}
+.empty p{margin:0;max-width:40ch}
+.more{padding:16px;text-align:center;color:var(--faint);font-size:13px}
+
+/* Sheets */
+.sheet{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.55);animation:fade .2s ease}
+.panel{position:relative;width:100%;max-width:760px;max-height:calc(100% - env(safe-area-inset-top,0px) - 12px);overflow:auto;-webkit-overflow-scrolling:touch;background:var(--bg);border-radius:18px 18px 0 0;border:1px solid var(--line);border-bottom:0;padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));animation:rise .28s cubic-bezier(.2,.8,.2,1)}
+@keyframes rise{from{transform:translateY(40px);opacity:.4}}
+@keyframes fade{from{opacity:0}}
+@media (prefers-reduced-motion: reduce){.panel,.scrim,.spin{animation:none}}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px var(--gutR) 10px var(--gut)}
+.panel-head h2{margin:0;font-family:var(--display);font-stretch:78%;font-weight:800;font-size:20px;text-transform:uppercase;letter-spacing:.03em}
+.x{width:34px;height:34px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center}
+.x svg{width:16px;height:16px}
+.panel-body{padding-left:var(--gut);padding-right:var(--gutR);display:grid;gap:16px}
+
+/* Player */
+.screen{position:relative;background:#000;aspect-ratio:16/9;width:100%;max-width:100%}
+.screen video{width:100%;height:100%;display:block;background:#000}
+.screen-msg{position:absolute;inset:0;display:grid;place-items:center;padding:20px;text-align:center;color:#e9eef4;font-size:14px;background:rgba(0,0,0,.72)}
+.screen-msg p{margin:0;max-width:44ch}
+.ch-head{display:grid;grid-template-columns:56px minmax(0,1fr);gap:12px;align-items:center;padding-top:14px}
+.ch-head h3{margin:0;font-family:var(--display);font-stretch:82%;font-weight:800;font-size:24px;line-height:1.1;text-wrap:balance;overflow-wrap:anywhere}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-weight:600;font-size:14px;text-decoration:none;color:var(--fg)}
+.btn svg{width:16px;height:16px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.label{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.sched{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.sched li{display:grid;grid-template-columns:56px minmax(0,1fr);gap:12px;padding:10px 12px;border-top:1px solid var(--line)}
+.sched li:first-child{border-top:0}
+.sched time{font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:2px}
+.sched .t{font-weight:600}
+.sched .d{font-size:13px;color:var(--muted);margin-top:2px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.sched li.cur time{color:var(--live)}
+.url{font-family:var(--mono);font-size:12px;color:var(--muted);overflow-wrap:anywhere;user-select:all;-webkit-user-select:all}
+.note{font-size:13px;color:var(--muted);margin:0}
+
+/* Settings form */
+.field{display:grid;gap:6px}
+.field label{font-size:13px;font-weight:600}
+.field input[type=url],.field input[type=text]{height:44px;border-radius:10px;border:1px solid var(--line);background:var(--surface);padding:0 12px;font-size:16px;width:100%;min-width:0}
+.field input:focus{outline:0;border-color:var(--accent)}
+.field .hint{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.or{display:flex;align-items:center;gap:10px;color:var(--faint);font-size:12px;text-transform:uppercase;letter-spacing:.1em}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.file{position:relative;overflow:hidden}
+.file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.recent{display:grid;gap:6px}
+.recent button{text-align:left;font-family:var(--mono);font-size:12px;color:var(--muted);padding:8px 10px;border-radius:8px;background:var(--surface);border:1px solid var(--line);overflow-wrap:anywhere}
+details{border-top:1px solid var(--line);padding-top:12px}
+summary{font-weight:600;font-size:14px;cursor:pointer}
+details .field{margin-top:10px}
+
+/* Install hint */
+.hint-bar{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:10px var(--gutR) calc(10px + env(safe-area-inset-bottom,0px)) var(--gut);background:var(--surface);border-top:1px solid var(--line);display:flex;align-items:center;gap:12px;font-size:14px}
+.hint-bar p{margin:0;flex:1}
+.hint-bar svg{width:18px;height:18px;vertical-align:-3px;color:var(--accent)}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:60;background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.3)}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" fill="currentColor"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<header class="deck">
+  <div class="deck-in">
+    <div class="top">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M16 16 23 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="16" cy="16" r="3" fill="currentColor"/></svg>
+        <span>Tuner</span>
+      </div>
+      <button class="pill-btn" id="openSource" type="button"><svg><use href="#i-list"/></svg>Playlist</button>
+    </div>
+    <label class="search" for="q">
+      <svg><use href="#i-search"/></svg>
+      <input id="q" type="search" placeholder="Search channels, categories, shows" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+      <button class="clear" id="clearQ" type="button" aria-label="Clear search" hidden><svg width="14" height="14"><use href="#i-x"/></svg></button>
+    </label>
+    <div class="scope" id="scope" role="tablist" aria-label="Search in">
+      <button type="button" role="tab" data-scope="all">All</button>
+      <button type="button" role="tab" data-scope="name">Channel</button>
+      <button type="button" role="tab" data-scope="category">Category</button>
+      <button type="button" role="tab" data-scope="now">On now</button>
+    </div>
+    <div class="chips" id="chips" aria-label="Categories"></div>
+  </div>
+</header>
+
+<main>
+  <div class="status" id="status"></div>
+  <ul class="list" id="list"></ul>
+  <div id="sentinel" class="more"></div>
+  <div class="empty" id="empty" hidden></div>
+</main>
+
+<!-- Player -->
+<div class="sheet" id="player" hidden>
+  <div class="scrim" data-close></div>
+  <section class="panel" role="dialog" aria-modal="true" aria-labelledby="pName">
+    <div class="screen">
+      <video id="video" playsinline controls preload="none"></video>
+      <div class="screen-msg" id="screenMsg" hidden><p id="screenMsgText"></p></div>
+    </div>
+    <div class="panel-body">
+      <div class="ch-head">
+        <span class="logo" id="pLogo"></span>
+        <div style="min-width:0">
+          <h3 id="pName"></h3>
+          <div class="meta" id="pMeta"></div>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" type="button" id="pFav"><svg><use href="#i-star"/></svg><span>Favorite</span></button>
+        <button class="btn" type="button" id="pCopy"><svg><use href="#i-copy"/></svg>Copy link</button>
+        <a class="btn" id="pVlc" target="_blank" rel="noopener"><svg><use href="#i-out"/></svg>Open in VLC</a>
+        <a class="btn" id="pInfuse" target="_blank" rel="noopener"><svg><use href="#i-out"/></svg>Infuse</a>
+        <button class="btn" type="button" data-close>Close</button>
+      </div>
+      <div id="pSchedWrap" class="field">
+        <span class="label">Schedule</span>
+        <ul class="sched" id="pSched"></ul>
+      </div>
+      <div class="field">
+        <span class="label">Stream</span>
+        <div class="url" id="pUrl"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Playlist settings -->
+<div class="sheet" id="source" hidden>
+  <div class="scrim" data-close></div>
+  <section class="panel" role="dialog" aria-modal="true" aria-labelledby="sTitle">
+    <div class="panel-head">
+      <h2 id="sTitle">Playlist</h2>
+      <button class="x" type="button" data-close aria-label="Close"><svg><use href="#i-x"/></svg></button>
+    </div>
+    <form class="panel-body" id="sourceForm" novalidate>
+      <div class="field">
+        <label for="srcUrl">M3U playlist link</label>
+        <input id="srcUrl" type="url" inputmode="url" placeholder="https://example.com/playlist.m3u" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <span class="hint">The link must allow loading from other sites (CORS). GitHub Pages links, like the iptv-org lists, work as-is.</span>
+      </div>
+      <button class="btn primary" type="submit">Load playlist</button>
+      <div class="or">or</div>
+      <label class="btn file" for="srcFile">Choose an .m3u file
+        <input id="srcFile" type="file" accept=".m3u,.m3u8,.txt,audio/x-mpegurl,audio/mpegurl,application/vnd.apple.mpegurl,text/plain">
+      </label>
+      <div class="field" id="recentWrap" hidden>
+        <span class="label">Recent</span>
+        <div class="recent" id="recent"></div>
+      </div>
+
+      <details id="guideDetails">
+        <summary>TV guide (for “On now” search)</summary>
+        <div class="field">
+          <label for="epgUrl">XMLTV guide link (.xml or .xml.gz)</label>
+          <input id="epgUrl" type="url" inputmode="url" placeholder="Leave empty to use the playlist’s own guide" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <span class="hint" id="epgHint">Programmes are matched to channels by tvg-id, then by channel name.</span>
+        </div>
+        <div class="actions" style="margin-top:10px">
+          <button class="btn" type="button" id="loadGuide">Load guide</button>
+          <button class="btn" type="button" id="clearGuide">Remove guide</button>
+        </div>
+      </details>
+
+      <details>
+        <summary>Advanced</summary>
+        <div class="field">
+          <label for="proxy">CORS proxy prefix (optional)</label>
+          <input id="proxy" type="text" placeholder="https://your-proxy.example/?url=" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <span class="hint">Used only when a direct download is blocked. The link is appended URL-encoded, or put {url} where it should go.</span>
+        </div>
+      </details>
+      <p class="note">Your playlist, guide and favorites are saved on this device only.</p>
+    </form>
+  </section>
+</div>
+
+<div class="hint-bar" id="installHint" hidden>
+  <p>Install Tuner: tap <svg><use href="#i-share"/></svg> Share, then <b>Add to Home Screen</b>.</p>
+  <button class="x" type="button" id="dismissHint" aria-label="Dismiss"><svg><use href="#i-x"/></svg></button>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+'use strict';
+const DEFAULT_URL = 'https://iptv-org.github.io/iptv/index.m3u';
+const HLS_SRC = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js';
+const PAGE = 100;
+const GUIDE_MAX_AGE = 6 * 3600e3;
+const LIST_MAX_AGE = 12 * 3600e3;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtN = n => n.toLocaleString();
+const fmtT = t => new Date(t).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+
+/* ---------- storage ---------- */
+const ls = {
+  get(k, d){ try { const v = localStorage.getItem('tuner.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v){ try { localStorage.setItem('tuner.' + k, JSON.stringify(v)); } catch {} }
+};
+const idb = (() => {
+  let p;
+  const open = () => p ||= new Promise((res, rej) => {
+    const r = indexedDB.open('tuner', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+  const op = async (mode, fn) => {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('kv', mode); const req = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => res(req && req.result); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
+    });
+  };
+  return {
+    get: k => op('readonly', s => s.get(k)).catch(() => undefined),
+    set: (k, v) => op('readwrite', s => s.put(v, k)).catch(() => {}),
+    del: k => op('readwrite', s => s.delete(k)).catch(() => {})
+  };
+})();
+
+/* ---------- state ---------- */
+const state = {
+  channels: [], groups: [], epgUrls: [], source: null,
+  scope: ls.get('scope', 'all'), group: ls.get('group', '__all'), q: '',
+  favs: new Set(ls.get('favs', [])),
+  results: [], shown: 0,
+  epg: null, epgInfo: null, epgLoading: null,
+  loading: null, error: null,
+  settings: Object.assign({ epg: '', proxy: '' }, ls.get('settings', {})),
+  recent: ls.get('recent', [])
+};
+
+/* ---------- M3U parsing ---------- */
+function parseAttrs(s){
+  const o = {}; const re = /([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g; let m;
+  while ((m = re.exec(s))) o[m[1].toLowerCase()] = m[2] ?? m[3] ?? '';
+  return o;
+}
+function splitExtinf(line){
+  let inQ = false;
+  for (let i = 8; i < line.length; i++){
+    const c = line[i];
+    if (c === '"') inQ = !inQ;
+    else if (c === ',' && !inQ) return [line.slice(8, i), line.slice(i + 1)];
+  }
+  return [line.slice(8), ''];
+}
+function makeChannel(e, url, i){
+  const a = e.attrs; let name = e.title || a['tvg-name'] || url;
+  let quality = ''; const tags = [];
+  name = name
+    .replace(/\(\s*(\d{3,4}[pi]|4k|uhd|fhd)\s*\)/i, (m, q) => { quality = q; return ''; })
+    .replace(/\[([^\]]+)\]/g, (m, t) => { tags.push(t.trim()); return ''; })
+    .replace(/\s{2,}/g, ' ').trim() || url;
+  const gStr = a['group-title'] || e.grp || '';
+  const groups = gStr.split(';').map(s => s.trim()).filter(Boolean);
+  if (!groups.length) groups.push('Undefined');
+  const id = a['tvg-id'] || '';
+  const cc = ((id.match(/\.([a-z]{2})(?:@|$)/i) || [])[1] || '').toLowerCase();
+  return {
+    i, name, nameL: name.toLowerCase(), url: url.trim(), logo: a['tvg-logo'] || '',
+    id, cc, groups, groupsL: groups.join(' | ').toLowerCase(), quality, tags,
+    key: id ? 'id:' + id : 'n:' + name
+  };
+}
+function parseM3U(text){
+  const lines = text.split(/\r?\n/); const out = []; let header = {}; let cur = null;
+  for (const raw of lines){
+    const line = raw.trim(); if (!line) continue;
+    if (line.startsWith('#EXTM3U')){ header = parseAttrs(line); continue; }
+    if (line.startsWith('#EXTINF')){ const [a, n] = splitExtinf(line); cur = { attrs: parseAttrs(a), title: n.trim(), grp: '' }; continue; }
+    if (line.startsWith('#EXTGRP:')){ if (cur) cur.grp = line.slice(8).trim(); continue; }
+    if (line.startsWith('#')) continue;
+    out.push(makeChannel(cur || { attrs: {}, title: '', grp: '' }, line, out.length));
+    cur = null;
+  }
+  const epgUrls = (header['x-tvg-url'] || header['url-tvg'] || header['tvg-url'] || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  return { channels: out, epgUrls };
+}
+
+/* ---------- networking ---------- */
+function proxied(url){
+  const p = (state.settings.proxy || '').trim(); if (!p) return null;
+  return p.includes('{url}') ? p.replace('{url}', encodeURIComponent(url)) : p + encodeURIComponent(url);
+}
+async function fetchSmart(url){
+  let res;
+  try { res = await fetch(url, { cache: 'no-cache' }); }
+  catch (err){
+    const alt = proxied(url);
+    if (!alt) throw new Error('Couldn’t download that link. The server may be down, or it blocks loading from other sites (CORS). Add a CORS proxy under Advanced, or download the file and choose it instead.');
+    res = await fetch(alt, { cache: 'no-cache' });
+  }
+  if (!res.ok) throw new Error(`The server answered ${res.status} ${res.statusText || ''}. Check the link and try again.`.replace('  ', ' '));
+  return res;
+}
+
+/* ---------- playlist ---------- */
+function applyPlaylist(text, source){
+  if (!/#EXTINF/i.test(text)) throw new Error('That file doesn’t look like an M3U playlist. No #EXTINF entries were found.');
+  const parsed = parseM3U(text);
+  if (!parsed.channels.length) throw new Error('The playlist has no channels.');
+  state.channels = parsed.channels; state.epgUrls = parsed.epgUrls; state.source = source;
+  const counts = new Map();
+  for (const ch of state.channels) for (const g of ch.groups) counts.set(g, (counts.get(g) || 0) + 1);
+  state.groups = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (state.group !== '__all' && state.group !== '__fav' && !counts.has(state.group)) state.group = '__all';
+  state.epg = null; state.epgInfo = null;
+  renderChips(); search();
+}
+async function loadPlaylistUrl(url, { quiet = false } = {}){
+  if (!quiet){ state.loading = 'Downloading playlist…'; state.error = null; renderStatus(); }
+  try {
+    const res = await fetchSmart(url);
+    const text = await res.text();
+    const same = quiet && state.source && state.source.text === text;
+    const source = { url, label: url, text, at: Date.now() };
+    if (!same) applyPlaylist(text, source); else state.source.at = source.at;
+    state.loading = null;
+    await idb.set('playlist', source);
+    remember(url);
+    renderStatus();
+    if (!same) autoGuide();
+  } catch (err){
+    state.loading = null;
+    if (!quiet){ state.error = err.message; }
+    renderStatus();
+  }
+}
+async function loadPlaylistFile(file){
+  state.loading = 'Reading ' + file.name + '…'; state.error = null; renderStatus();
+  try {
+    const text = await file.text();
+    const source = { url: '', label: file.name, text, at: Date.now() };
+    applyPlaylist(text, source);
+    state.loading = null; await idb.set('playlist', source); renderStatus(); autoGuide();
+  } catch (err){ state.loading = null; state.error = err.message; renderStatus(); }
+}
+function remember(url){
+  state.recent = [url, ...state.recent.filter(u => u !== url)].slice(0, 5);
+  ls.set('recent', state.recent);
+}
+
+/* ---------- XMLTV guide ---------- */
+const ENT = { amp:'&', lt:'<', gt:'>', quot:'"', apos:"'", nbsp:' ' };
+function decode(s){
+  if (!s) return '';
+  s = s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, c) => {
+    if (c[0] === '#'){
+      const n = c[1].toLowerCase() === 'x' ? parseInt(c.slice(2), 16) : parseInt(c.slice(1), 10);
+      try { return String.fromCodePoint(n); } catch { return m; }
+    }
+    return ENT[c.toLowerCase()] ?? m;
+  }).replace(/\s+/g, ' ').trim();
+}
+function xmltvTime(s){
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?\s*([+-]\d{2}:?\d{2})?/.exec((s || '').trim());
+  if (!m) return NaN;
+  let t = Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  if (m[7]){ const z = m[7].replace(':', ''); const sign = z[0] === '-' ? -1 : 1; t -= sign * (+z.slice(1, 3) * 60 + +z.slice(3, 5)) * 60000; }
+  return t;
+}
+const normName = s => s.toLowerCase().replace(/&amp;/g, '&').replace(/\(.*?\)|\[.*?\]/g, '').replace(/\b(hd|sd|fhd|uhd|4k|tv)\b/g, '').replace(/[^\p{L}\p{N}]+/gu, '');
+const tagRe = n => new RegExp('<' + n + '\\b[^>]*>([\\s\\S]*?)</' + n + '>', 'i');
+const RE = { title: tagRe('title'), sub: tagRe('sub-title'), desc: tagRe('desc'), cat: tagRe('category'), dn: /<display-name\b[^>]*>([\s\S]*?)<\/display-name>/gi };
+
+async function parseGuideStream(body, channels, onProgress){
+  // Build lookup tables from the playlist
+  const byId = new Map(), byName = new Map();
+  const add = (m, k, v) => { if (!k) return; const a = m.get(k); if (a){ if (!a.includes(v)) a.push(v); } else m.set(k, [v]); };
+  for (const ch of channels){
+    if (ch.id){ const l = ch.id.toLowerCase(); add(byId, l, ch.i); add(byId, l.split('@')[0], ch.i); }
+    add(byName, normName(ch.name), ch.i);
+  }
+  const xmap = new Map();
+  const resolve = xid => {
+    if (xmap.has(xid)) return xmap.get(xid);
+    const l = (xid || '').toLowerCase();
+    const hit = byId.get(l) || byId.get(l.split('@')[0]) || null;
+    xmap.set(xid, hit); return hit;
+  };
+  const now = Date.now(), horizon = now + 36 * 3600e3;
+  const progs = new Map();
+
+  function handle(tag, el){
+    const gt = el.indexOf('>'); const at = parseAttrs(el.slice(0, gt));
+    if (tag === 'channel'){
+      let hit = resolve(at.id);
+      if (!hit){
+        RE.dn.lastIndex = 0; let m;
+        while (!hit && (m = RE.dn.exec(el))) hit = byName.get(normName(decode(m[1]))) || null;
+        if (hit) xmap.set(at.id, hit);
+      }
+      return;
+    }
+    const targets = resolve(at.channel); if (!targets) return;
+    const s = xmltvTime(at.start); const e = xmltvTime(at.stop);
+    if (!isFinite(s) || s > horizon || (isFinite(e) && e <= now)) return;
+    const g = re => { const m = re.exec(el); return m ? decode(m[1]) : ''; };
+    const p = { s, e: isFinite(e) ? e : NaN, t: g(RE.title) || 'Untitled', st: g(RE.sub), d: g(RE.desc).slice(0, 360), c: g(RE.cat) };
+    for (const i of targets){ const a = progs.get(i); if (a) a.push(p); else progs.set(i, [p]); }
+  }
+
+  // Detect gzip by magic bytes and stream-decompress
+  const raw = body.getReader();
+  const first = await raw.read();
+  const head = first.value || new Uint8Array();
+  const gz = head[0] === 0x1f && head[1] === 0x8b;
+  let stream = new ReadableStream({
+    start(c){ if (head.length) c.enqueue(head); if (first.done) c.close(); },
+    async pull(c){ const { value, done } = await raw.read(); if (done) c.close(); else c.enqueue(value); }
+  });
+  let bytes = head.length;
+  if (gz){
+    if (typeof DecompressionStream === 'undefined') throw new Error('This browser can’t unpack .gz guides. Use an uncompressed .xml guide link.');
+    stream = stream.pipeThrough(new DecompressionStream('gzip'));
+  }
+  const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '', lastTick = 0;
+  for (;;){
+    const { value, done } = await reader.read();
+    if (value){ buf += value; bytes += value.length; }
+    let pos = 0;
+    for (;;){
+      const ci = buf.indexOf('<channel', pos), pi = buf.indexOf('<programme', pos);
+      if (ci < 0 && pi < 0){ pos = Math.max(pos, buf.length - 16); break; }
+      const isCh = pi < 0 || (ci >= 0 && ci < pi);
+      const s = isCh ? ci : pi, tag = isCh ? 'channel' : 'programme';
+      const gt = buf.indexOf('>', s); if (gt < 0){ pos = s; break; }
+      if (buf[gt - 1] === '/'){ handle(tag, buf.slice(s, gt + 1)); pos = gt + 1; continue; }
+      const endTag = '</' + tag + '>'; const e = buf.indexOf(endTag, gt);
+      if (e < 0){ pos = s; break; }
+      handle(tag, buf.slice(s, e + endTag.length)); pos = e + endTag.length;
+    }
+    buf = buf.slice(pos);
+    if (onProgress && Date.now() - lastTick > 400){ lastTick = Date.now(); onProgress(bytes); }
+    if (done) break;
+  }
+  // Tidy: sort, fill missing stop times, drop finished shows
+  for (const [i, list] of progs){
+    list.sort((a, b) => a.s - b.s);
+    const out = [];
+    for (let k = 0; k < list.length; k++){
+      const p = list[k]; if (out.length && out[out.length - 1].s === p.s) continue;
+      if (!isFinite(p.e)) p.e = list[k + 1] ? list[k + 1].s : p.s + 3600e3;
+      if (p.e > now) out.push(p);
+    }
+    if (out.length) progs.set(i, out); else progs.delete(i);
+  }
+  return progs;
+}
+
+function guideUrl(){ return (state.settings.epg || '').trim() || state.epgUrls[0] || ''; }
+function playlistSig(){ return (state.source?.url || state.source?.label || '') + '#' + state.channels.length; }
+
+async function loadGuide(url, { quiet = false } = {}){
+  if (!url || !state.channels.length) return;
+  state.epgLoading = 'Loading guide…'; renderStatus();
+  try {
+    const res = await fetchSmart(url);
+    const progs = await parseGuideStream(res.body, state.channels, b => { state.epgLoading = `Loading guide… ${(b / 1048576).toFixed(1)} MB`; renderStatus(); });
+    state.epg = progs; state.epgInfo = { url, at: Date.now(), matched: progs.size };
+    state.epgLoading = null;
+    await idb.set('guide', { sig: playlistSig(), url, at: Date.now(), progs });
+    search(true); renderStatus();
+    if (!quiet) toast(progs.size ? `Guide loaded for ${fmtN(progs.size)} channels` : 'Guide loaded, but no channels matched');
+  } catch (err){
+    state.epgLoading = null; renderStatus();
+    if (!quiet) toast('Guide failed: ' + err.message, 5000);
+  }
+}
+async function autoGuide(){
+  const url = guideUrl(); if (!url) { renderStatus(); return; }
+  const cached = await idb.get('guide');
+  if (cached && cached.sig === playlistSig() && cached.url === url){
+    state.epg = cached.progs; state.epgInfo = { url, at: cached.at, matched: cached.progs.size };
+    search(true); renderStatus();
+    if (Date.now() - cached.at < GUIDE_MAX_AGE) return;
+  }
+  loadGuide(url, { quiet: true });
+}
+function nowOf(ch, t){
+  const list = state.epg && state.epg.get(ch.i); if (!list) return null;
+  for (const p of list){ if (p.s <= t && t < p.e) return p; if (p.s > t) break; }
+  return null;
+}
+
+/* ---------- search & render ---------- */
+const list = $('#list'), sentinel = $('#sentinel'), empty = $('#empty');
+
+function search(keepScroll){
+  const terms = state.q.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const t = Date.now(); const sc = state.scope; const g = state.group;
+  const res = [];
+  for (const ch of state.channels){
+    if (g === '__fav'){ if (!state.favs.has(ch.key)) continue; }
+    else if (g !== '__all' && !ch.groups.includes(g)) continue;
+    if (sc === 'now' && !terms.length && state.epg && !nowOf(ch, t)) continue;
+    if (terms.length){
+      let hay = '';
+      if (sc === 'all' || sc === 'name') hay += ch.nameL + ' ';
+      if (sc === 'all' || sc === 'category') hay += ch.groupsL + ' ';
+      if (sc === 'all' || sc === 'now'){
+        const p = nowOf(ch, t);
+        if (p) hay += (p.tl ||= (p.t + ' ' + p.st + ' ' + p.c).toLowerCase());
+      }
+      let ok = true; for (const term of terms) if (!hay.includes(term)){ ok = false; break; }
+      if (!ok) continue;
+    }
+    res.push(ch);
+  }
+  if (terms.length && (sc === 'all' || sc === 'name')){
+    const q = terms.join(' ');
+    const rank = ch => ch.nameL === q ? 0 : ch.nameL.startsWith(q) ? 1 : ch.nameL.includes(q) ? 2 : 3;
+    res.sort((a, b) => rank(a) - rank(b));
+  }
+  state.results = res; state.shown = 0;
+  list.innerHTML = '';
+  if (!keepScroll) window.scrollTo(0, 0);
+  renderMore(); renderEmpty(); renderStatus();
+}
+
+function hl(text, terms){
+  if (!terms.length) return esc(text);
+  const re = new RegExp('(' + terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'gi');
+  return String(text).split(re).map((part, k) => k % 2 ? `<mark>${esc(part)}</mark>` : esc(part)).join('');
+}
+function initials(n){
+  const w = n.replace(/[^\p{L}\p{N} ]/gu, ' ').split(/\s+/).filter(Boolean);
+  return ((w[0] || '?')[0] + (w[1] ? w[1][0] : (w[0] || '')[1] || '')).toUpperCase();
+}
+function logoHTML(ch){
+  return `<span class="ini">${esc(initials(ch.name))}</span>` +
+    (ch.logo ? `<img loading="lazy" decoding="async" src="${esc(ch.logo)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : '');
+}
+function rowHTML(ch, t, terms){
+  const p = nowOf(ch, t); const fav = state.favs.has(ch.key);
+  const hName = state.scope === 'all' || state.scope === 'name' ? terms : [];
+  const hCat = state.scope === 'all' || state.scope === 'category' ? terms : [];
+  const hNow = state.scope === 'all' || state.scope === 'now' ? terms : [];
+  let now = '';
+  if (p){
+    const pct = Math.min(100, Math.max(0, (t - p.s) / (p.e - p.s) * 100));
+    const left = Math.max(1, Math.round((p.e - t) / 60000));
+    now = `<span class="now"><span class="now-t">${hl(p.t, hNow)}</span><span class="left">${left >= 60 ? Math.floor(left / 60) + 'h ' + (left % 60) + 'm' : left + 'm'} left</span><span class="bar"><i style="width:${pct.toFixed(1)}%"></i></span></span>`;
+  }
+  return `<li class="row" data-i="${ch.i}">
+    <button class="row-main" type="button" data-act="play">
+      <span class="logo">${logoHTML(ch)}</span>
+      <span class="info">
+        <span class="name">${hl(ch.name, hName)}${ch.quality ? `<span class="q">${esc(ch.quality)}</span>` : ''}</span>
+        <span class="meta">${ch.cc ? `<span class="cc">${esc(ch.cc.toUpperCase())}</span>` : ''}${hl(ch.groups.join(' · '), hCat)}${ch.tags.length ? ` <span class="tag">· ${esc(ch.tags.join(', '))}</span>` : ''}</span>
+        ${now}
+      </span>
+    </button>
+    <button class="star" type="button" data-act="fav" aria-pressed="${fav}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites"><svg><use href="#i-star"/></svg></button>
+  </li>`;
+}
+function currentTerms(){ return state.q.toLowerCase().trim().split(/\s+/).filter(Boolean); }
+function renderMore(){
+  const end = Math.min(state.results.length, state.shown + PAGE);
+  if (end <= state.shown){ sentinel.textContent = ''; return; }
+  const t = Date.now(), terms = currentTerms(); let html = '';
+  for (let k = state.shown; k < end; k++) html += rowHTML(state.results[k], t, terms);
+  list.insertAdjacentHTML('beforeend', html);
+  state.shown = end;
+  sentinel.textContent = end < state.results.length ? `${fmtN(state.results.length - end)} more…` : '';
+}
+new IntersectionObserver(es => { if (es[0].isIntersecting) renderMore(); }, { rootMargin: '1200px 0px' }).observe(sentinel);
+
+function renderEmpty(){
+  if (state.results.length || !state.channels.length){ empty.hidden = true; return; }
+  let h, p;
+  if (state.group === '__fav' && !state.favs.size){ h = 'No favorites yet'; p = 'Tap the star on any channel to keep it here.'; }
+  else if (state.scope === 'now' && !state.epg){ h = 'No TV guide loaded'; p = 'Searching what’s on needs an XMLTV guide. This playlist doesn’t include one.'; }
+  else { h = state.q ? `Nothing matches “${esc(state.q)}”` : 'No channels here'; p = state.group !== '__all' ? 'Try searching all categories instead.' : 'Check the spelling, or switch the search to All.'; }
+  const btn = state.scope === 'now' && !state.epg ? '<button class="btn primary" type="button" data-guide>Add a guide</button>'
+    : (state.group !== '__all' ? '<button class="btn" type="button" data-allcats>Search all categories</button>' : '');
+  empty.innerHTML = `<h2>${h}</h2><p>${p}</p>${btn}`;
+  empty.hidden = false;
+}
+function renderStatus(){
+  const el = $('#status');
+  if (state.loading){ el.innerHTML = `<span><span class="spin"></span>&nbsp; ${esc(state.loading)}</span>`; return; }
+  if (state.error && !state.channels.length){
+    el.innerHTML = `<span class="err">${esc(state.error)}</span><span class="actions"><button class="btn" type="button" data-retry>Try again</button><button class="btn" type="button" data-source>Change playlist</button></span>`;
+    return;
+  }
+  const total = state.channels.length, shown = state.results.length;
+  const count = shown === total ? `${fmtN(total)} channels` : `${fmtN(shown)} of ${fmtN(total)} channels`;
+  let guide;
+  if (state.epgLoading) guide = `<span class="guide-tag"><span class="spin"></span>${esc(state.epgLoading)}</span>`;
+  else if (state.epg) guide = `<button type="button" class="guide-tag on" data-source><span class="d"></span>Guide · ${fmtN(state.epg.size)} channels</button>`;
+  else guide = `<button type="button" class="guide-tag" data-guide>No guide · add one</button>`;
+  el.innerHTML = `<span class="count">${count}</span>${guide}` + (state.error ? `<span class="err" style="flex-basis:100%">${esc(state.error)}</span>` : '');
+}
+function renderChips(){
+  const favN = state.channels.filter(c => state.favs.has(c.key)).length;
+  const chip = (val, label, n) => `<button type="button" class="chip" data-group="${esc(val)}" aria-pressed="${state.group === val}">${label}${n != null ? `<span class="n">${fmtN(n)}</span>` : ''}</button>`;
+  $('#chips').innerHTML = chip('__all', 'All', state.channels.length) + chip('__fav', '★ Favorites', favN) +
+    state.groups.map(([g, n]) => chip(g, esc(g), n)).join('');
+  const on = $('#chips [aria-pressed="true"]'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
+}
+function renderScope(){ for (const b of $('#scope').children) b.setAttribute('aria-selected', b.dataset.scope === state.scope); }
+
+/* ---------- favorites ---------- */
+function toggleFav(ch){
+  if (state.favs.has(ch.key)) state.favs.delete(ch.key); else state.favs.add(ch.key);
+  ls.set('favs', [...state.favs]);
+  const n = state.channels.filter(c => state.favs.has(c.key)).length;
+  const favChip = $('#chips [data-group="__fav"] .n'); if (favChip) favChip.textContent = fmtN(n);
+  return state.favs.has(ch.key);
+}
+
+/* ---------- player ---------- */
+let hls = null, hlsLoad = null, stallTimer = null, current = null;
+const video = $('#video');
+function loadHls(){
+  if (window.Hls) return Promise.resolve(window.Hls);
+  return hlsLoad ||= new Promise(res => {
+    const s = document.createElement('script'); s.src = HLS_SRC; s.async = true;
+    s.onload = () => res(window.Hls || null); s.onerror = () => { hlsLoad = null; res(null); };
+    document.head.appendChild(s);
+  });
+}
+function screenMsg(text){ $('#screenMsg').hidden = !text; $('#screenMsgText').textContent = text || ''; }
+function stopVideo(){
+  clearTimeout(stallTimer);
+  if (hls){ hls.destroy(); hls = null; }
+  video.pause(); video.removeAttribute('src'); video.load();
+}
+function failMsg(ch){
+  const insecure = ch.url.startsWith('http:') && location.protocol === 'https:';
+  return insecure
+    ? 'This stream uses plain http, which browsers block inside secure apps. Open it in VLC or Infuse instead.'
+    : 'This stream didn’t load. It may be offline, geo-blocked, or need headers only a dedicated player can send. Try VLC or Infuse.';
+}
+function play(ch){
+  current = ch; stopVideo(); screenMsg('');
+  const sheet = $('#player'); sheet.hidden = false; document.body.style.overflow = 'hidden';
+  $('#pLogo').innerHTML = logoHTML(ch);
+  $('#pName').textContent = ch.name + (ch.quality ? ' · ' + ch.quality : '');
+  $('#pMeta').innerHTML = (ch.cc ? `<span class="cc">${esc(ch.cc.toUpperCase())}</span>` : '') + esc(ch.groups.join(' · ')) + (ch.tags.length ? ` <span class="tag">· ${esc(ch.tags.join(', '))}</span>` : '');
+  $('#pUrl').textContent = ch.url;
+  $('#pVlc').href = 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(ch.url);
+  $('#pInfuse').href = 'infuse://x-callback-url/play?url=' + encodeURIComponent(ch.url);
+  setFavBtn(ch);
+  renderSched(ch);
+
+  if (ch.url.startsWith('http:') && location.protocol === 'https:'){ screenMsg(failMsg(ch)); return; }
+  video.onerror = () => screenMsg(failMsg(ch));
+  video.onplaying = () => { clearTimeout(stallTimer); screenMsg(''); };
+  stallTimer = setTimeout(() => { if (video.readyState < 3) screenMsg('Still connecting… Some streams take a while. If nothing appears, try VLC or Infuse.'); }, 15000);
+
+  const native = video.canPlayType('application/vnd.apple.mpegurl');
+  const plainFile = /\.(mp4|webm|m4v|mov|mp3|aac|ogg)(\?|$)/i.test(ch.url);
+  if (native || plainFile){
+    video.src = ch.url; video.play().catch(() => {});
+  } else {
+    loadHls().then(Hls => {
+      if (current !== ch) return;
+      if (Hls && Hls.isSupported()){
+        hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+        hls.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) screenMsg(failMsg(ch)); });
+        hls.loadSource(ch.url); hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+      } else { video.src = ch.url; video.play().catch(() => {}); }
+    });
+  }
+}
+function setFavBtn(ch){
+  const on = state.favs.has(ch.key); const b = $('#pFav');
+  b.setAttribute('aria-pressed', on); b.querySelector('span').textContent = on ? 'Favorited' : 'Favorite';
+  b.classList.toggle('primary', on);
+}
+function renderSched(ch){
+  const all = state.epg && state.epg.get(ch.i); const t = Date.now();
+  const items = all ? all.filter(p => p.e > t).slice(0, 6) : [];
+  $('#pSchedWrap').hidden = !items.length;
+  $('#pSched').innerHTML = items.map(p => {
+    const cur = p.s <= t;
+    return `<li class="${cur ? 'cur' : ''}"><time>${cur ? 'Now' : fmtT(p.s)}</time><div><div class="t">${esc(p.t)}</div>${p.st ? `<div class="d">${esc(p.st)}</div>` : ''}${cur && p.d ? `<div class="d">${esc(p.d)}</div>` : ''}</div></li>`;
+  }).join('');
+}
+function closeSheets(){
+  for (const s of document.querySelectorAll('.sheet')) s.hidden = true;
+  document.body.style.overflow = '';
+  stopVideo(); current = null;
+}
+
+/* ---------- settings sheet ---------- */
+function openSource(focusGuide){
+  $('#srcUrl').value = state.source?.url || '';
+  $('#epgUrl').value = state.settings.epg || '';
+  $('#proxy').value = state.settings.proxy || '';
+  $('#epgHint').textContent = state.epgUrls.length
+    ? `This playlist names its own guide: ${state.epgUrls[0]}. Leave the field empty to use it.`
+    : 'This playlist doesn’t name a guide. Paste an XMLTV link; programmes are matched by tvg-id, then by channel name.';
+  const rec = state.recent.filter(u => u !== state.source?.url);
+  $('#recentWrap').hidden = !rec.length;
+  $('#recent').innerHTML = rec.map(u => `<button type="button" data-url="${esc(u)}">${esc(u)}</button>`).join('');
+  $('#guideDetails').open = !!focusGuide;
+  $('#source').hidden = false; document.body.style.overflow = 'hidden';
+  if (focusGuide) setTimeout(() => $('#epgUrl').focus(), 250);
+}
+function saveSettings(){
+  state.settings.epg = $('#epgUrl').value.trim();
+  state.settings.proxy = $('#proxy').value.trim();
+  ls.set('settings', state.settings);
+}
+
+/* ---------- toast ---------- */
+let toastT;
+function toast(msg, ms = 2600){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, ms); }
+
+/* ---------- events ---------- */
+let qT;
+$('#q').addEventListener('input', e => {
+  $('#clearQ').hidden = !e.target.value;
+  clearTimeout(qT); qT = setTimeout(() => { state.q = e.target.value; search(); }, 140);
+});
+$('#q').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
+$('#clearQ').addEventListener('click', () => { $('#q').value = ''; $('#clearQ').hidden = true; state.q = ''; search(); $('#q').focus(); });
+$('#scope').addEventListener('click', e => {
+  const b = e.target.closest('[data-scope]'); if (!b) return;
+  state.scope = b.dataset.scope; ls.set('scope', state.scope); renderScope(); search();
+});
+$('#chips').addEventListener('click', e => {
+  const b = e.target.closest('[data-group]'); if (!b) return;
+  state.group = b.dataset.group; ls.set('group', state.group);
+  for (const c of $('#chips').children) c.setAttribute('aria-pressed', c === b);
+  b.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  search();
+});
+list.addEventListener('click', e => {
+  const btn = e.target.closest('[data-act]'); if (!btn) return;
+  const ch = state.channels[+btn.closest('.row').dataset.i];
+  if (btn.dataset.act === 'play') play(ch);
+  else { const on = toggleFav(ch); btn.setAttribute('aria-pressed', on); btn.setAttribute('aria-label', (on ? 'Remove from' : 'Add to') + ' favorites'); }
+});
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-close]')) closeSheets();
+  else if (e.target.closest('[data-guide]')) openSource(true);
+  else if (e.target.closest('[data-source]')) openSource(false);
+  else if (e.target.closest('[data-retry]')) loadPlaylistUrl(state.recent[0] || DEFAULT_URL);
+  else if (e.target.closest('[data-allcats]')){ state.group = '__all'; ls.set('group', '__all'); renderChips(); search(); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheets(); });
+$('#openSource').addEventListener('click', () => openSource(false));
+$('#pFav').addEventListener('click', () => { if (current){ toggleFav(current); setFavBtn(current); refreshRows(); } });
+$('#pCopy').addEventListener('click', async () => {
+  if (!current) return;
+  try { await navigator.clipboard.writeText(current.url); toast('Stream link copied'); }
+  catch { const r = document.createRange(); r.selectNodeContents($('#pUrl')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); toast('Link selected. Tap Copy.'); }
+});
+$('#sourceForm').addEventListener('submit', e => {
+  e.preventDefault(); saveSettings();
+  const url = $('#srcUrl').value.trim();
+  if (!/^https?:\/\//i.test(url)){ toast('Enter a link that starts with https://'); $('#srcUrl').focus(); return; }
+  closeSheets(); state.channels = []; list.innerHTML = ''; loadPlaylistUrl(url);
+});
+$('#srcFile').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return; saveSettings(); closeSheets(); loadPlaylistFile(f); e.target.value = '';
+});
+$('#recent').addEventListener('click', e => { const b = e.target.closest('[data-url]'); if (b) $('#srcUrl').value = b.dataset.url; });
+$('#loadGuide').addEventListener('click', () => {
+  saveSettings(); const url = guideUrl();
+  if (!url){ toast('Paste a guide link first'); $('#epgUrl').focus(); return; }
+  closeSheets(); loadGuide(url);
+});
+$('#clearGuide').addEventListener('click', async () => {
+  $('#epgUrl').value = ''; saveSettings(); state.epg = null; state.epgInfo = null; await idb.del('guide');
+  closeSheets(); search(true); toast('Guide removed');
+});
+$('#dismissHint').addEventListener('click', () => { $('#installHint').hidden = true; ls.set('hintDone', true); });
+
+function refreshRows(){
+  const t = Date.now(), terms = currentTerms();
+  for (const li of list.children){ const ch = state.channels[+li.dataset.i]; if (ch) li.outerHTML = rowHTML(ch, t, terms); }
+}
+setInterval(() => { if (document.visibilityState === 'visible' && state.epg) { if (state.scope === 'now' || state.q) search(true); else refreshRows(); } }, 60000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.epg) refreshRows(); });
+
+/* ---------- boot ---------- */
+(async function boot(){
+  renderScope();
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  if (isIOS && !standalone && !ls.get('hintDone', false)) $('#installHint').hidden = false;
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+  const cached = await idb.get('playlist');
+  if (cached && cached.text){
+    try { applyPlaylist(cached.text, cached); } catch {}
+    renderStatus(); autoGuide();
+    if (cached.url && Date.now() - cached.at > LIST_MAX_AGE) loadPlaylistUrl(cached.url, { quiet: true });
+  } else {
+    loadPlaylistUrl(DEFAULT_URL);
+  }
+})();
+</script>
+</body>
+</html>
