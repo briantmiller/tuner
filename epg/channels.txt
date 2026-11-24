@@ -28,3 +28,13 @@ TNT.us
 HGTV.us
 FoodNetwork.us
 PBSKids.us
+ABC.us
+ACCNetwork.us
+AMC.us
+BBCAmerica.us
+BigTenNetwork.us
+CartoonNetwork.us
+CBS.us
+Cinemax.us
+ComedyCentral.us
+
