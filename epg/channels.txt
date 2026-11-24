@@ -1,0 +1,30 @@
+# Channels to build a guide for: one tvg-id per line, as it appears in your playlist.
+#
+#   CNN.us              any feed of CNN.us (the @feed suffix is optional)
+#   CNN.us@East         only that feed
+#   CNN.us tvtv.us      force a source site (one of the folders in iptv-org/epg/sites)
+#
+# Keep this list short: every channel costs a request per day per run.
+# The workflow log and the Actions run summary list any ids with no guide source.
+
+# News
+CNN.us
+FoxNewsChannel.us
+MSNBC.us
+ABCNewsLive.us
+CBSNews247.us
+NBCNewsNOW.us
+BloombergTV.us
+
+# Weather
+FoxWeather.us
+TheWeatherChannel.us
+
+# Entertainment and sports
+CourtTV.us
+ESPN.us
+TBS.us
+TNT.us
+HGTV.us
+FoodNetwork.us
+PBSKids.us

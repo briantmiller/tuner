@@ -1,6 +1,6 @@
 // Tuner service worker: keeps the app shell available offline.
 // Playlists, guides, logos and streams always go straight to the network.
-const CACHE = 'tuner-v1';
+const CACHE = 'tuner-v2';
 const SHELL = [
   './',
   './index.html',
@@ -27,6 +27,8 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  // The published guide changes every 30 minutes: never cache it or answer it with index.html
+  if (/\/guide(\.xml(\.gz)?|-status\.json)$/.test(url.pathname)) return;
   // Network first so updates show up right away; cache when offline.
   e.respondWith(
     fetch(req)

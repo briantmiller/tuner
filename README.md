@@ -11,10 +11,11 @@ iOS only installs web apps served over **https**, so the folder needs a host. An
 2. Drag this whole `tuner` folder onto the page.
 3. Open the link it gives you on your iPhone.
 
-**GitHub Pages**
-1. Create a new repository and upload the contents of this folder (index.html at the top level).
-2. Settings → Pages → Deploy from branch → `main` / root → Save.
-3. Open `https://<you>.github.io/<repo>/` on your iPhone.
+**GitHub Pages (recommended: also builds the TV guide)**
+1. Create a new repository and upload the contents of this folder (index.html at the top level), including the hidden `.github` folder.
+2. Settings → Pages → Source: **GitHub Actions**.
+3. Actions → **Guide and site** → **Run workflow** (after that it runs by itself every 30 minutes and on every push to `main`).
+4. Open `https://<you>.github.io/<repo>/` on your iPhone.
 
 Cloudflare Pages, Vercel and similar hosts work the same way.
 
@@ -33,7 +34,31 @@ Cloudflare Pages, Vercel and similar hosts work the same way.
 
 ## “On now” needs a TV guide
 
-What's playing comes from an XMLTV guide (.xml or .xml.gz). If the playlist names one in its header (`x-tvg-url` / `url-tvg`), Tuner loads it automatically. The iptv-org playlists don't include one, so paste a guide link under **Playlist → TV guide**. Programmes are matched by `tvg-id` (with or without the `@feed` suffix), then by channel name. The iptv-org/epg project can generate guides for its channels.
+What's playing comes from an XMLTV guide (.xml or .xml.gz). Tuner uses, in this order: the link under **Playlist → TV guide**, the guide named in the playlist header (`x-tvg-url` / `url-tvg`), then the `guide.xml` published next to the app. Programmes are matched by `tvg-id` (with or without the `@feed` suffix), then by channel name.
+
+### The built-in guide (GitHub Pages)
+
+`.github/workflows/epg.yml` runs every 30 minutes. It downloads [iptv-org/epg](https://github.com/iptv-org/epg), grabs listings for the channels in `epg/channels.txt`, keeps the next 6 hours and publishes them with the app:
+
+- `https://<you>.github.io/<repo>/guide.xml` (and `guide.xml.gz`)
+- `https://<you>.github.io/<repo>/guide-status.json`: when it was built and which site each channel came from
+
+To change the channels, edit `epg/channels.txt` (one `tvg-id` per line, as in your playlist) and push. Each run's summary lists channels that iptv-org/epg has no source for. To find a channel's id, search `sites/*/*.channels.xml` in iptv-org/epg for the channel name.
+
+Each channel gets a preferred site and one fallback (order in `epg/sites.txt`). If both fail, the channel keeps the programmes from the last published guide until they run out. Repository variables `EPG_WINDOW_HOURS`, `EPG_FALLBACK_SITES`, `EPG_MAX_CONNECTIONS` and `EPG_REF` change the defaults.
+
+The app refreshes this guide every 30 minutes while it's open. **Remove guide** turns it off; **Load guide** with an empty link turns it back on.
+
+Good to know: GitHub runs schedules on a best-effort basis (runs can start late or be skipped at busy times), and it pauses scheduled workflows in public repositories after 60 days without commits. Re-enable it from the Actions tab if that happens.
+
+To try it locally:
+
+```sh
+git clone --depth 1 https://github.com/iptv-org/epg .epg && (cd .epg && npm ci)
+node epg/build-channels.mjs --sites .epg/sites --wanted epg/channels.txt --prefer epg/sites.txt --out /tmp/channels.xml
+(cd .epg && npm run grab --- --channels=/tmp/channels.xml --output=/tmp/raw/{site}.xml --days=2 --maxConnections=4)
+node epg/trim.mjs --channels /tmp/channels.xml --raw /tmp/raw --hours 6 --out .
+```
 
 ## Limits worth knowing
 
@@ -48,3 +73,5 @@ What's playing comes from an XMLTV guide (.xml or .xml.gz). If the playlist name
 - `manifest.webmanifest` – install metadata
 - `sw.js` – offline cache for the app itself
 - `icons/` – Home Screen and app icons
+- `epg/` – channel list and scripts for the guide (not published)
+- `.github/workflows/epg.yml` – builds the guide and deploys the site

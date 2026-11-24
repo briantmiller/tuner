@@ -1,0 +1,119 @@
+# Builds a short-window TV guide with iptv-org/epg and publishes it, together
+# with the app, to GitHub Pages (Settings → Pages → Source: GitHub Actions).
+#
+# Result: https://<you>.github.io/<repo>/guide.xml (also guide.xml.gz and
+# guide-status.json). Edit epg/channels.txt to choose the channels.
+#
+# Optional repository variables (Settings → Secrets and variables → Actions → Variables):
+#   EPG_WINDOW_HOURS     hours of guide to publish (default 6)
+#   EPG_FALLBACK_SITES   extra sites tried per channel (default 1)
+#   EPG_MAX_CONNECTIONS  parallel requests to guide sites (default 4)
+#   EPG_REF              iptv-org/epg branch, tag or commit (default master)
+name: Guide and site
+
+on:
+  schedule:
+    - cron: '7,37 * * * *' # every 30 min, off the hour (GitHub may run it late)
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  WINDOW_HOURS: ${{ vars.EPG_WINDOW_HOURS || '6' }}
+  FALLBACKS: ${{ vars.EPG_FALLBACK_SITES || '1' }}
+  MAX_CONNECTIONS: ${{ vars.EPG_MAX_CONNECTIONS || '4' }}
+  EPG_REF: ${{ vars.EPG_REF || 'master' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Get iptv-org/epg
+        uses: actions/checkout@v5
+        with:
+          repository: iptv-org/epg
+          ref: ${{ env.EPG_REF }}
+          path: .epg
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .epg/package-lock.json
+
+      - name: Install iptv-org/epg
+        working-directory: .epg
+        env:
+          HUSKY: '0'
+        run: npm ci --no-audit --no-fund
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Pick a source for each channel
+        run: >
+          node epg/build-channels.mjs
+          --sites .epg/sites
+          --wanted epg/channels.txt
+          --prefer epg/sites.txt
+          --fallbacks "$FALLBACKS"
+          --out "$RUNNER_TEMP/channels.xml"
+
+      - name: Fetch the guide that is live now (used if a site fails)
+        run: curl -fsSL --retry 2 "${{ steps.pages.outputs.base_url }}/guide.xml.gz" -o "$RUNNER_TEMP/previous.xml.gz" || echo "No published guide yet"
+
+      - name: Grab listings
+        working-directory: .epg
+        timeout-minutes: 15
+        continue-on-error: true
+        # --days 2 because grab works in whole UTC days and the window can cross midnight
+        run: >
+          npm run grab ---
+          --channels="$RUNNER_TEMP/channels.xml"
+          --output="$RUNNER_TEMP/raw/{site}.xml"
+          --days=2
+          --maxConnections="$MAX_CONNECTIONS"
+          --timeout=20000
+
+      - name: Trim to the next ${{ env.WINDOW_HOURS }} hours
+        run: >
+          node epg/trim.mjs
+          --channels "$RUNNER_TEMP/channels.xml"
+          --raw "$RUNNER_TEMP/raw"
+          --previous "$RUNNER_TEMP/previous.xml.gz"
+          --hours "$WINDOW_HOURS"
+          --out "$RUNNER_TEMP/guide"
+
+      - name: Assemble site
+        run: |
+          mkdir _site
+          rsync -a --exclude '.*' --exclude '_site' --exclude 'epg/' ./ _site/
+          cp "$RUNNER_TEMP"/guide/* _site/
+          ls -la _site
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

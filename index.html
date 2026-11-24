@@ -314,6 +314,9 @@ const DEFAULT_URL = 'https://iptv-org.github.io/iptv/index.m3u';
 const HLS_SRC = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js';
 const PAGE = 100;
 const GUIDE_MAX_AGE = 6 * 3600e3;
+// Guide published next to the app by .github/workflows/epg.yml (every 30 min, next few hours)
+const SELF_GUIDE = new URL('guide.xml', location.href).href;
+const SELF_GUIDE_MAX_AGE = 30 * 60e3;
 const LIST_MAX_AGE = 12 * 3600e3;
 
 const $ = s => document.querySelector(s);
@@ -581,7 +584,15 @@ async function parseGuideStream(body, channels, onProgress){
   return progs;
 }
 
-function guideUrl(){ return (state.settings.epg || '').trim() || state.epgUrls[0] || ''; }
+function guideUrl(){
+  return (state.settings.epg || '').trim() || state.epgUrls[0]
+    || (state.settings.selfGuide !== false && location.protocol.startsWith('http') ? SELF_GUIDE : '');
+}
+const guideMaxAge = url => url === SELF_GUIDE ? SELF_GUIDE_MAX_AGE : GUIDE_MAX_AGE;
+function refreshGuideIfStale(){
+  const info = state.epgInfo;
+  if (info && !state.epgLoading && navigator.onLine !== false && Date.now() - info.at > guideMaxAge(info.url)) loadGuide(info.url, { quiet: true });
+}
 function playlistSig(){ return (state.source?.url || state.source?.label || '') + '#' + state.channels.length; }
 
 async function loadGuide(url, { quiet = false } = {}){
@@ -606,7 +617,7 @@ async function autoGuide(){
   if (cached && cached.sig === playlistSig() && cached.url === url){
     state.epg = cached.progs; state.epgInfo = { url, at: cached.at, matched: cached.progs.size };
     search(true); renderStatus();
-    if (Date.now() - cached.at < GUIDE_MAX_AGE) return;
+    if (Date.now() - cached.at < guideMaxAge(url)) return;
   }
   loadGuide(url, { quiet: true });
 }
@@ -826,7 +837,9 @@ function openSource(focusGuide){
   $('#proxy').value = state.settings.proxy || '';
   $('#epgHint').textContent = state.epgUrls.length
     ? `This playlist names its own guide: ${state.epgUrls[0]}. Leave the field empty to use it.`
-    : 'This playlist doesn’t name a guide. Paste an XMLTV link; programmes are matched by tvg-id, then by channel name.';
+    : state.settings.selfGuide !== false
+      ? 'Leave the field empty to use the guide published with this app (guide.xml). Or paste an XMLTV link; programmes are matched by tvg-id, then by channel name.'
+      : 'This playlist doesn’t name a guide. Paste an XMLTV link, or leave it empty and tap Load guide to use the one published with this app.';
   const rec = state.recent.filter(u => u !== state.source?.url);
   $('#recentWrap').hidden = !rec.length;
   $('#recent').innerHTML = rec.map(u => `<button type="button" data-url="${esc(u)}">${esc(u)}</button>`).join('');
@@ -895,12 +908,12 @@ $('#srcFile').addEventListener('change', e => {
 });
 $('#recent').addEventListener('click', e => { const b = e.target.closest('[data-url]'); if (b) $('#srcUrl').value = b.dataset.url; });
 $('#loadGuide').addEventListener('click', () => {
-  saveSettings(); const url = guideUrl();
+  state.settings.selfGuide = true; saveSettings(); const url = guideUrl();
   if (!url){ toast('Paste a guide link first'); $('#epgUrl').focus(); return; }
   closeSheets(); loadGuide(url);
 });
 $('#clearGuide').addEventListener('click', async () => {
-  $('#epgUrl').value = ''; saveSettings(); state.epg = null; state.epgInfo = null; await idb.del('guide');
+  $('#epgUrl').value = ''; state.settings.selfGuide = false; saveSettings(); state.epg = null; state.epgInfo = null; await idb.del('guide');
   closeSheets(); search(true); toast('Guide removed');
 });
 $('#dismissHint').addEventListener('click', () => { $('#installHint').hidden = true; ls.set('hintDone', true); });
@@ -909,8 +922,8 @@ function refreshRows(){
   const t = Date.now(), terms = currentTerms();
   for (const li of list.children){ const ch = state.channels[+li.dataset.i]; if (ch) li.outerHTML = rowHTML(ch, t, terms); }
 }
-setInterval(() => { if (document.visibilityState === 'visible' && state.epg) { if (state.scope === 'now' || state.q) search(true); else refreshRows(); } }, 60000);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.epg) refreshRows(); });
+setInterval(() => { if (document.visibilityState === 'visible' && state.epg) { if (state.scope === 'now' || state.q) search(true); else refreshRows(); refreshGuideIfStale(); } }, 60000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.epg) { refreshRows(); refreshGuideIfStale(); } });
 
 /* ---------- boot ---------- */
 (async function boot(){

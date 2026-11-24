@@ -1,0 +1,6 @@
+.epg/
+_site/
+guide.xml
+guide.xml.gz
+guide-status.json
+node_modules/

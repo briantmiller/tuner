@@ -1,0 +1,9 @@
+# Preferred guide sources, best first. When a channel is listed by several
+# iptv-org/epg sites, the first one here wins; the next one is kept as a fallback.
+# Sites not listed rank after these, most widely used (in channels.txt) first.
+tvtv.us
+i.mjh.nz
+tvpassport.com
+pluto.tv
+plex.tv
+tvguide.com
