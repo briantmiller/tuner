@@ -23,6 +23,8 @@ TheWeatherChannel.us
 # Entertainment and sports
 CourtTV.us
 ESPN.us
+ESPN2.us
+ESPNU.us
 TBS.us
 TNT.us
 HGTV.us
@@ -37,4 +39,21 @@ CartoonNetwork.us
 CBS.us
 Cinemax.us
 ComedyCentral.us
+Fox.us
+FoxSports1.us
+FoxSports2.us
+FX.us
+FXX.us
+HBO.us
+NBC.us
+NBCSportsBoston.us
+NFLChannel.us
+NFLSundayTicket.us
+NFLSundayTicket1.us
+NFLSundayTicket2.us
+NFLSundayTicket3.us
+NFLSundayTicketRedZone.us
+NHLCenterIce1.us
+NHLNetwork.us
+NHLNetworkAlternate.us
 
